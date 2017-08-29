@@ -920,7 +920,7 @@ class Workflow(Entity):
     # TODO: For now, the 'extra' stuff always defines attributes on the node which map to the same attribute
     # on the entity (quick-fix)
     protocols = NestedEntityListDescriptor('protocol', Protocol, 'protocols', extra=["name"])
-    stages    = NestedEntityListDescriptor('stage', Stage, 'stages')
+    stages    = NestedEntityListDescriptor('stage', Stage, 'stages', extra=["name"])
 
 
 class ReagentType(Entity):

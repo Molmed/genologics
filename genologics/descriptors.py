@@ -480,7 +480,7 @@ class NestedStringListDescriptor(StringListDescriptor):
 class NestedEntityListDescriptor(EntityListDescriptor):
     """same as EntityListDescriptor, but works on nested elements"""
 
-    def __init__(self, tag, klass, rootkey=None, extra=None):
+    def __init__(self, tag, klass, rootkey=None, extra=[]):
         super(EntityListDescriptor, self).__init__(tag, klass)
         self.klass = klass
         self.tag = tag
@@ -494,10 +494,9 @@ class NestedEntityListDescriptor(EntityListDescriptor):
         if self.rootkey:
             rootnode = rootnode.find(self.rootkey)
         for node in rootnode.findall(self.tag):
-            for extra_name in self.extra_meta:
-                # NOTE: The name should correspond to the name on the object, not necessarily the same
-                # as the name of the attribute. For now, we support only the same.
-                extra = {extra_name: node.attrib[extra_name]}
+            # NOTE: The name should correspond to the name on the object, not necessarily the same
+            # as the name of the attribute. For now, we support only the same.
+            extra = {extra_name: node.attrib[extra_name] for extra_name in self.extra_meta}
             result.append(self.klass(instance.lims, uri=node.attrib['uri'], extra=extra))
         return result
 
