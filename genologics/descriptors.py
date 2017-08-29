@@ -73,6 +73,11 @@ class StringAttributeDescriptor(TagDescriptor):
     """
 
     def __get__(self, instance, cls):
+        # If we have this in the extra, we return that. This supports faster loading when information is available
+        # in details. This should be supported in all descriptors. The extra "if not self.root" is necessary for
+        # correctness, i.e. if we have fetched from the details view, we always use that.
+        if instance.extra is not None and instance.root is None and self.tag in instance.extra:  # TODO: ensure instance.extra is not None
+            return instance.extra[self.tag]
         instance.get()
         return instance.root.attrib[self.tag]
 
@@ -475,20 +480,25 @@ class NestedStringListDescriptor(StringListDescriptor):
 class NestedEntityListDescriptor(EntityListDescriptor):
     """same as EntityListDescriptor, but works on nested elements"""
 
-    def __init__(self, tag, klass, *args):
+    def __init__(self, tag, klass, rootkey=None, extra=None):
         super(EntityListDescriptor, self).__init__(tag, klass)
         self.klass = klass
         self.tag = tag
-        self.rootkeys = args
+        self.rootkey = rootkey
+        self.extra_meta = extra
 
     def __get__(self, instance, cls):
         instance.get()
         result = []
         rootnode = instance.root
-        for rootkey in self.rootkeys:
-            rootnode = rootnode.find(rootkey)
+        if self.rootkey:
+            rootnode = rootnode.find(self.rootkey)
         for node in rootnode.findall(self.tag):
-            result.append(self.klass(instance.lims, uri=node.attrib['uri']))
+            for extra_name in self.extra_meta:
+                # NOTE: The name should correspond to the name on the object, not necessarily the same
+                # as the name of the attribute. For now, we support only the same.
+                extra = {extra_name: node.attrib[extra_name]}
+            result.append(self.klass(instance.lims, uri=node.attrib['uri'], extra=extra))
         return result
 
 
