@@ -207,6 +207,15 @@ class UdfDictionary(object):
                 if elem.tag == tag:
                     self._elems.append(elem)
 
+    def _parse_numeric(self, value):
+        if value == 'None':
+            return None
+        try:
+            ret = int(value)
+        except ValueError:
+            ret = float(value)
+        return ret
+
     def _prepare_lookup(self):
         self._lookup = dict()
         for elem in self._elems:
@@ -215,10 +224,7 @@ class UdfDictionary(object):
             if not value:
                 value = None
             elif type == 'numeric':
-                try:
-                    value = int(value)
-                except ValueError:
-                    value = float(value)
+                value = self._parse_numeric(value)
             elif type == 'boolean':
                 value = value == 'true'
             elif type == 'date':

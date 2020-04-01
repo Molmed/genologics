@@ -287,6 +287,16 @@ class Entity(object):
         if not force and self.root is not None: return
         self.root = self.lims.get(self.uri)
 
+    def put_none_adapted(self):
+        """
+        HACK: This method is only to be used if you want to delete a udf value.
+        Like put(), but replaces all 'None' occurences with empty string
+        in the string representation of xml tree
+        """
+        data = self.lims.tostring(ElementTree.ElementTree(self.root))
+        data = data.replace('>None<', '><')
+        self.lims.put(self.uri, data)
+
     def put(self):
         "Save this instance by doing PUT of its serialized XML."
         data = self.lims.tostring(ElementTree.ElementTree(self.root))
