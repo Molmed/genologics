@@ -293,9 +293,10 @@ class Entity(object):
         self.lims.put(self.uri, data)
 
     def post(self):
-        "Save this instance with POST"
+        "Save this instance with POST. Returns the lims id of the newly created entity."
         data = self.lims.tostring(ElementTree.ElementTree(self.root))
-        self.lims.post(self.uri, data)
+        element = self.lims.post(self.uri, data)
+        return element.attrib.get("limsid", None)
 
     @classmethod
     def _create(cls, lims, creation_tag=None, **kwargs):
@@ -705,10 +706,11 @@ class Artifact(Entity):
 
     workflow_stages_and_statuses = property(_get_workflow_stages_and_statuses)
 
-
 class StepPlacements(Entity):
     """Placements from within a step. Supports POST"""
     _placementslist = None
+    _PREFIX = "stp"
+    _TAG = "placements"
 
     # [[A,(C,'A:1')][A,(C,'A:2')]] where A is an Artifact and C a Container
     def get_placement_list(self):
@@ -731,12 +733,11 @@ class StepPlacements(Entity):
         containers = set()
         self.get_placement_list()
         for node in self.root.find('output-placements').findall('output-placement'):
-            for pair in value:
-                art = pair[0]
+            print(node)
+            continue
+            for art, location in value:
                 if art.uri == node.attrib['uri']:
-                    location = pair[1]
-                    workset = location[0]
-                    well = location[1]
+                    workset, well = location
                     if workset and location:
                         containers.add(workset)
                         if node.find('location') is not None:
@@ -963,9 +964,25 @@ class Queue(Entity):
 
     artifacts=NestedEntityListDescriptor("artifact", Artifact, "artifacts")
 
+
+class StepConfiguration(Entity):
+    pass
+
+# class StepPlacements2(Entity):
+#     _PREFIX = "stp"
+#     _TAG = "placements"
+
+#     # TODO: Resolve issue with Step having to be defined before this class
+#     step = EntityDescriptor('step', Step)
+#     configuration = EntityDescriptor('configuration', StepConfiguration)
+
+
 Sample.artifact          = EntityDescriptor('artifact', Artifact)
 StepActions.step         = EntityDescriptor('step', Step)
 Stage.workflow           = EntityDescriptor('workflow', Workflow)
 Artifact.workflow_stages = NestedEntityListDescriptor('workflow-stage', Stage, 'workflow-stages')
 Step.configuration       = EntityDescriptor('configuration', ProtocolStep)
+
+StepPlacements.step          = EntityDescriptor('step', Step)
+StepPlacements.configuration = EntityDescriptor('configuration', StepConfiguration)
 
