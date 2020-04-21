@@ -65,8 +65,8 @@ class Lims(object):
         # For optimization purposes, enables requests to persist connections
         self.request_session = requests.Session()
         # The connection pool has a default size of 10
-        self.adapter = requests.adapters.HTTPAdapter(pool_connections=100, pool_maxsize=100)
-        self.request_session.mount('http://', self.adapter)
+        self.adapter = requests.adapters.HTTPAdapter(pool_connections=100, pool_maxsize=100, max_retries=50000)
+        self.request_session.mount('https://', self.adapter)
 
     def get_uri(self, *segments, **query):
         "Return the full URI given the path segments and optional query."
@@ -129,7 +129,7 @@ class Lims(object):
 
         # Actually upload the file
         uri = self.get_uri('files', file.id, 'upload')
-        r = requests.post(uri, files={'file': (file_to_upload, open(file_to_upload, 'rb'))},
+        r = self.request_session.post(uri, files={'file': (file_to_upload, open(file_to_upload, 'rb'))},
                           auth=(self.username, self.password))
         self.validate_response(r)
         return file
@@ -138,7 +138,7 @@ class Lims(object):
         """PUT the serialized XML to the given URI.
         Return the response XML as an ElementTree.
         """
-        r = requests.put(uri, data=data, params=params,
+        r = self.request_session.put(uri, data=data, params=params,
                          auth=(self.username, self.password),
                          headers={'content-type': 'application/xml',
                                   'accept': 'application/xml'})
@@ -148,7 +148,7 @@ class Lims(object):
         """POST the serialized XML to the given URI.
         Return the response XML as an ElementTree.
         """
-        r = requests.post(uri, data=data, params=params,
+        r = self.request_session.post(uri, data=data, params=params,
                           auth=(self.username, self.password),
                           headers={'content-type': 'application/xml',
                                    'accept': 'application/xml'})
@@ -159,7 +159,7 @@ class Lims(object):
         does not match any of the versions given for the API.
         """
         uri = urljoin(self.baseuri, 'api')
-        r = requests.get(uri, auth=(self.username, self.password))
+        r = self.request_session.get(uri, auth=(self.username, self.password))
         root = self.parse_response(r)
         tag = nsmap('ver:versions')
         assert tag == root.tag
@@ -573,7 +573,7 @@ class Lims(object):
             a.set('uri', artifact.uri)
 
         uri = self.get_uri('route', 'artifacts')
-        r = requests.post(uri, data=self.tostring(ElementTree.ElementTree(root)),
+        r = self.request_session.post(uri, data=self.tostring(ElementTree.ElementTree(root)),
                           auth=(self.username, self.password),
                           headers={'content-type': 'application/xml',
                                    'accept': 'application/xml'})
