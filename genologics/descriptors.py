@@ -228,51 +228,59 @@ class UdfDictionary(object):
     def __getitem__(self, key):
         return self._lookup[key]
 
+    def _validate_and_parse(self, vtype, value):
+        """
+        Validates that the `value` is valid for vtype and returns a valid string representation
+        of the value that can be accepted by the API.
+        """
+        if value is None:
+            value = ''
+        elif vtype == 'string' or vtype == 'str':
+            if not self._is_string(value):
+                raise TypeError('String UDF requires a string')
+        elif vtype == 'text':
+            if not self._is_string(value):
+                raise TypeError('Text UDF requires a string')
+        elif vtype == 'numeric':
+            if not isinstance(value, (int, float, Decimal)) and value != '':
+                raise TypeError('Numeric UDF requires int or float value')
+            else:
+                value = str(value)
+        elif vtype == 'boolean':
+            if not isinstance(value, bool):
+                raise TypeError('Boolean UDF requires bool value')
+            value = 'true' if value else 'false'
+        elif vtype == 'date':
+            if not isinstance(value, datetime.date):  # Too restrictive?
+                raise TypeError('Date UDF requires datetime.date value')
+            value = str(value)
+        elif vtype == 'uri':
+            if not self._is_string(value):
+                raise TypeError('URI UDF requires a string')
+            value = str(value)
+        elif not isinstance(value, str):
+            if not self._is_string(value):
+                value = str(value).encode('UTF-8')
+        else:
+            raise NotImplementedError("UDF type '%s'" % vtype)
+
+        return value
+
     def __setitem__(self, key, value):
         self._lookup[key] = value
-        for node in self._elems:
-            if node.attrib['name'] != key: continue
-            vtype = node.attrib['type'].lower()
 
-            if value is None:
-                value=''
-            elif vtype == 'string':
-                if not self._is_string(value):
-                    raise TypeError('String UDF requires str or unicode value')
-            elif vtype == 'str':
-                if not self._is_string(value):
-                    raise TypeError('String UDF requires str or unicode value')
-            elif vtype == 'text':
-                if not self._is_string(value):
-                    raise TypeError('Text UDF requires str or unicode value')
-            elif vtype == 'numeric':
-                if not isinstance(value, (int, float, Decimal)) and value != '':
-                    raise TypeError('Numeric UDF requires int or float value')
-                else:
-                    value = str(value)
-            elif vtype == 'boolean':
-                if not isinstance(value, bool):
-                    raise TypeError('Boolean UDF requires bool value')
-                value = 'true' if value else 'false'
-            elif vtype == 'date':
-                if not isinstance(value, datetime.date):  # Too restrictive?
-                    raise TypeError('Date UDF requires datetime.date value')
-                value = str(value)
-            elif vtype == 'uri':
-                if not self._is_string(value):
-                    raise TypeError('URI UDF requires str or punycode (unicode) value')
-                value = str(value)
-            else:
-                raise NotImplementedError("UDF type '%s'" % vtype)
-            if value is None:
-                node.text = ''
-            else:
-                if not isinstance(value, str):
-                    if not self._is_string(value):
-                        value = str(value).encode('UTF-8')
-            node.text = value
-            break
-        else:  # Create new entry; heuristics for type
+        found_node = None
+
+        for node in self._elems:
+            if node.attrib['name'] != key:
+                continue
+            found_node = node
+
+        if found_node:
+            vtype = found_node.attrib['type'].lower()
+            found_node.text = self._validate_and_parse(vtype, value)
+        else:
+            # Create new entry; heuristics for type
             if self._is_string(value):
                 vtype = 'Text' if '\n' in value else 'String'
             elif isinstance(value, bool):
@@ -301,7 +309,7 @@ class UdfDictionary(object):
 
             elem.text = value
 
-            #update the internal elements and lookup with new values
+            # update the internal elements and lookup with new values
             self._update_elems()
             self._prepare_lookup()
 
