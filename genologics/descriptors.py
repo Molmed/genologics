@@ -151,10 +151,7 @@ class UdfDictionary(object):
     "Dictionary-like container of UDFs, optionally within a UDT."
 
     def _is_string(self, value):
-        try:
-            return isinstance(value, basestring)
-        except:
-            return isinstance(value, str)
+        return isinstance(value, str)
 
     def __init__(self, instance, *args, **kwargs):
         self.instance = instance
