@@ -8,11 +8,6 @@ Copyright (C) 2012 Per Kraulis
 
 from genologics.constants import nsmap
 
-try:
-    from urllib.parse import urlsplit, urlparse, parse_qs, urlunparse
-except ImportError:
-    from urlparse import urlsplit, urlparse, parse_qs, urlunparse
-
 from decimal import Decimal
 import datetime
 import time
