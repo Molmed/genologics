@@ -261,7 +261,7 @@ class UdfDictionary(object):
             elif vtype == 'boolean':
                 if not isinstance(value, bool):
                     raise TypeError('Boolean UDF requires bool value')
-                value = value and 'true' or 'false'
+                value = 'true' if value else 'false'
             elif vtype == 'date':
                 if not isinstance(value, datetime.date):  # Too restrictive?
                     raise TypeError('Date UDF requires datetime.date value')
@@ -282,10 +282,10 @@ class UdfDictionary(object):
             break
         else:  # Create new entry; heuristics for type
             if self._is_string(value):
-                vtype = '\n' in value and 'Text' or 'String'
+                vtype = 'Text' if '\n' in value else 'String'
             elif isinstance(value, bool):
                 vtype = 'Boolean'
-                value = value and 'true' or 'false'
+                value = 'true' if value else 'false'
             elif isinstance(value, (int, float, Decimal)):
                 vtype = 'Numeric'
                 value = str(value)
