@@ -14,6 +14,7 @@ from genologics.descriptors import StringDescriptor, StringDictionaryDescriptor,
     NestedStringListDescriptor, NestedAttributeListDescriptor, IntegerAttributeDescriptor, NestedStringDescriptor, \
     NestedBooleanDescriptor, MultiPageNestedEntityListDescriptor, ProcessTypeParametersDescriptor, \
     ProcessTypeProcessInputDescriptor, ProcessTypeProcessOutputDescriptor, NamedStringDescriptor, OutputReagentList
+import warnings
 
 try:
     from urllib.parse import urlsplit, urlparse, parse_qs, urlunparse
@@ -238,6 +239,8 @@ class Entity(object):
     _TAG = None
     _URI = None
     _PREFIX = None
+    _CREATION_PREFIX = None
+    _CREATION_TAG = None
 
     def __new__(cls, lims, uri=None, id=None, _create_new=False, extra=None):
         if not uri:
@@ -456,6 +459,7 @@ class Sample(Entity):
     _URI = 'samples'
     _TAG = 'sample'
     _PREFIX = 'smp'
+    _CREATION_TAG = 'samplecreation'
 
     name           = StringDescriptor('name')
     date_received  = StringDescriptor('date-received')
@@ -1084,29 +1088,194 @@ class Step(Entity):
 
     _URI = 'steps'
     _PREFIX = 'stp'
+    _CREATION_TAG = 'step-creation'
 
-    current_state = StringAttributeDescriptor('current-state')
-    _reagent_lots = EntityDescriptor('reagent-lots', StepReagentLots)
-    actions       = EntityDescriptor('actions', StepActions)
-    placements    = EntityDescriptor('placements', StepPlacements)
-    details       = EntityDescriptor('details', StepDetails)
-    step_pools         = EntityDescriptor('pools', StepPools)
-    program_status     = EntityDescriptor('program-status', StepProgramStatus)
-    reagents     = EntityDescriptor('reagents', StepReagents)
+    current_state   = StringAttributeDescriptor('current-state')
+    _reagent_lots   = EntityDescriptor('reagent-lots', StepReagentLots)
+    actions         = EntityDescriptor('actions', StepActions)
+    placements      = EntityDescriptor('placements', StepPlacements)
+    details         = EntityDescriptor('details', StepDetails)
+    pools           = EntityDescriptor('pools', StepPools)
+    program_status  = EntityDescriptor('program-status', StepProgramStatus)
+    reagents        = EntityDescriptor('reagents', StepReagents)
     date_started    = StringDescriptor('date-started')
     date_completed  = StringDescriptor('date-completed')
+    technician      = EntityDescriptor('technician', Researcher)
+    _available_programs = None
+    configuration = None
+
+    @property
+    def step_pools(self):
+        warnings.warn(
+            "'step_pools' is deprecated; use 'pools' instead.",
+            category=UserWarning,
+            stacklevel=2,
+        )
+        return self.pools
 
     def advance(self):
+        """
+        Send a post query to advance the step to the next step
+        """
         self.get()
+        data = self.lims.tostring(ElementTree.ElementTree(self.root))
         self.root = self.lims.post(
-            uri="{0}/advance".format(self.uri),
-            data=self.lims.tostring(ElementTree.ElementTree(self.root))
+            uri=f"{self.uri}/advance",
+            data=data
         )
 
     @property
     def reagent_lots(self):
         return self._reagent_lots.reagent_lots
 
+    @property
+    def available_programs(self):
+        """
+        List of available programs (tuples of name and trigger URI).
+        """
+        self.get()
+        if self._available_programs is None:
+            self._available_programs = []
+            available_programs_et = self.root.find('available-programs')
+            if available_programs_et is not None:
+                for ap in available_programs_et.findall('available-program'):
+                    self._available_programs.append(
+                        (ap.attrib['name'], ap.attrib['uri']))
+        return self._available_programs
+
+
+    @property
+    def program_names(self):
+        """
+        List of available program names.
+        """
+        return [ap[0] for ap in self.available_programs]
+
+    def trigger_program(self, name):
+        """
+        Trigger a program of the provided name.
+
+        :param name: the name of the program.
+        :return: the program status.
+        :raise ValueError: if the program does not exist.
+        """
+        progs = [ap[1] for ap in self.available_programs if name == ap[0]]
+        if not progs:
+            raise ValueError(f"{name} not in available program names")
+        e = self.lims.post(progs[0], data=None)
+        self.program_status = StepProgramStatus(self.lims, uri=e.attrib['uri'])
+        self.program_status.root = e
+        return self.program_status
+
+    def set_placements(self, output_placement_list):
+        """
+        Assign output artifacts to destination container wells.
+
+        :param output_placement_list: Placements formatted as `[(artifact, (container, well_str)), ...]`.
+        :type output_placement_list: list[tuple[Artifact, tuple[Container, str]]]
+        :return: The updated step placements resource returned by the LIMS API.
+        :rtype: StepPlacements
+        """
+        placements = StepPlacements(self.lims, uri=f"{self.uri}/placements")
+        placements.placement_list = output_placement_list
+        placements.root = placements.post()
+        return placements
+
+    @classmethod
+    def create(cls, lims, protocol_step, inputs, container_type_name=None,
+            reagent_category=None, replicates=1, creation_tag=None, **kwargs,):
+        """
+        Start a step from queued input artifacts.
+
+        :param lims: Active LIMS API connection instance.
+        :type lims: genologics.lims.Lims
+        :param protocol_step: Protocol step configuration defining workflow settings.
+        :type protocol_step: ProtocolStep
+        :param inputs: Input artifacts to process in the step.
+        :type inputs: list[Artifact]
+        :param container_type_name: Name of output container type (e.g., '96 well plate')
+        :type container_type_name: str, optional
+        :param reagent_category: Name of the required reagent category, if applicable.
+        :type reagent_category: str, optional
+        :param replicates: Number of output replicates to generate per input artifact.
+        :type replicates: int or list[int], optional
+        :param creation_tag: XML root element tag name for step creation (defaults to `_CREATION_TAG`).
+        :type creation_tag: str, optional
+        :param kwargs: Additional keyword parameters passed to base instance initialization.
+        :return: The newly instantiated Step entity.
+        :rtype: genologics.entities.Step
+        :raises ValueError: If `inputs` list is empty, replicate counts mismatch, or `container_type_name` is unpermitted.
+        :raises TypeError: If `protocol_step` or any element in `inputs` is not of expected entity type.
+        """
+        if not inputs:
+            raise ValueError(
+                "Cannot create a step with an empty inputs list.")
+
+        # Dynamically use class attribute _CREATION_TAG if creation_tag is not explicitly provided
+        tag = creation_tag or getattr(cls, '_CREATION_TAG',
+                                      'step-creation')
+        instance = cls._create(lims, creation_tag=tag, **kwargs)
+
+        if not isinstance(protocol_step, ProtocolStep):
+            raise TypeError(
+                f"protocol_step must be ProtocolStep, got {type(protocol_step)}."
+            )
+
+        configuration_node = ElementTree.SubElement(instance.root,
+                                                    'configuration')
+        configuration_node.attrib['uri'] = protocol_step.uri
+        configuration_node.text = protocol_step.name
+
+        # Container validation (handling both permitted_containers and permittedcontainers safely)
+        permitted = getattr(
+            protocol_step,
+            'permitted_containers',
+            getattr(protocol_step, 'permittedcontainers', []),
+        )
+        if permitted:
+            permitted_names = [
+                c.name if hasattr(c, 'name') else str(c) for c in permitted
+            ]
+            if not container_type_name and len(permitted_names) == 1:
+                container_type_name = permitted_names[0]
+
+            if container_type_name in permitted_names:
+                container_type_node = ElementTree.SubElement(
+                    instance.root, 'container-type'
+                )
+                container_type_node.text = container_type_name
+            elif container_type_name:
+                raise ValueError(
+                    f"Container type '{container_type_name}' is invalid. "
+                    f"Permitted types: {permitted_names}"
+                )
+
+        if reagent_category:
+            reagent_category_node = ElementTree.SubElement(
+                instance.root, 'reagent-category'
+            )
+            reagent_category_node.text = reagent_category
+
+        if isinstance(replicates, int):
+            replicates = [replicates] * len(inputs)
+        if len(replicates) != len(inputs):
+            raise ValueError(
+                "Length of replicates must match length of inputs.")
+
+        inputs_node = ElementTree.SubElement(instance.root, 'inputs')
+        for i, artifact in enumerate(inputs):
+            if not isinstance(artifact, Artifact):
+                raise TypeError(
+                    f"Input must be Artifact, got {type(artifact)}.")
+            input_node = ElementTree.SubElement(inputs_node, 'input')
+            input_node.attrib['uri'] = artifact.uri
+            if replicates[i]:
+                input_node.attrib['replicates'] = str(replicates[i])
+
+        data = lims.tostring(ElementTree.ElementTree(instance.root))
+        instance.root = lims.post(uri=lims.get_uri(cls._URI), data=data)
+        instance._uri = instance.root.attrib['uri']
+        return instance
 
 class ProtocolStep(Entity):
     """Steps key in the Protocol object"""
@@ -1123,6 +1292,14 @@ class ProtocolStep(Entity):
     sample_fields           = NestedAttributeListDescriptor('sample-field', 'sample-fields')
     step_properties         = NestedAttributeListDescriptor('step-property', 'step-properties')
     epp_triggers            = NestedAttributeListDescriptor('epp-trigger', 'epp-triggers')
+
+    @property
+    def queue(self):
+        """
+        The queue associated with this protocol step. The link is possible
+        because they share the same id.
+        """
+        return Queue(self.lims, id=self.id)
 
 
 class Protocol(Entity):
